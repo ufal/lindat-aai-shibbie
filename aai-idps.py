@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+ 
 # -*- coding: UTF-8 -*-
 """
     Had to add
@@ -41,12 +42,11 @@ settings = {
             "SP_URL": "https://login.terena.org/wayf/module.php/discopower/disco.php",
             "json_url": "https://login.terena.org/wayf/module.php/core/authenticate.php?as=default-sp",
         },
-        "nagios": {},
     },
     #
     "file_error_json": "/var/www/secure/aai-idp-errors.json",
     #
-    "parallel_max": 20,
+    "parallel_max": 0,
     # 
     "error_responses": (
         "message did not meet security requirements",
@@ -66,6 +66,14 @@ settings = {
 
     #
     "log_stdout": True,
+    #
+    "NAGIOS_VALS": {
+        0: (120,240,0,240),
+        1: (120,240,0,240),
+        2: (0,1,0,1),
+        3: (0,1,0,480),
+    },
+
 }
 
 
@@ -364,11 +372,11 @@ def test_terena(error_d):
             break
         want += 1
 
-def test_nagios(error_d):
+def test_nagios(error_d, test_fnc):
     global settings
     settings["log_stdout"] = False
     took = time.time()
-    test_default(error_d) 
+    test_fnc(error_d) 
     took = time.time() - took
 
     def _exit( code, msg_str, time_d ):
@@ -377,21 +385,20 @@ def test_nagios(error_d):
             WARN = 1
             EXC = 2
         """
-        warn_time, crit_time, min_time, max_time = _env["NAGIOS_VALS"][code]
+        warn_time, crit_time, min_time, max_time = settings["NAGIOS_VALS"][code]
         msg_whole = "%s total time [%ss] with ret code [%s]|time=%ss;%s;%s;%s;%s\n" % (
           msg_str, time_d, code, int(time_d), warn_time, crit_time, min_time, max_time)
         print( msg_whole )
-        _log(msg_whole)
         sys.exit(code)
 
-    msg = u"OK - checked [%d] idps" % len(error_d["settings"]["idps_count"])
+    msg = u"OK - checked [%d] idps" % error_d["settings"]["idps_count"]
     if len(error_d["errors"]) == 0:
         _exit( 0, msg, took )
     else:
         # only info
         msg = u"NOT " + msg
-        for e in errors_d["errors"]:
-            msg += u"\n %d" % e[0]
+        for e in error_d["errors"]:
+            msg += u"<br /> %s" % e[0]
         _exit( 0, msg, took )
 
 
@@ -405,8 +412,6 @@ def test_default(error_d):
     if settings["parallel_max"] < 2:
         #if False:
         for i, (eid, u) in enumerate( urls_to_check ):
-            if "apu.uepb.edu.br" not in eid:
-                continue
             log_stdout( "#%d: %s" % (i + 1, eid) )
             msg = test_idp( (eid, u) )
             log_stdout( " - %s\n" % ( "\n\t" + msg if msg is not None else "OK") )
@@ -424,12 +429,16 @@ def test_default(error_d):
 
 
 def handle_external_test():
+    del sys.argv[0]
+    if len(sys.argv) > 0:
+        del sys.argv[0]
+    param = None if len(sys.argv) == 0 else sys.argv[-1]
     for name, t in settings["external_tests"].iteritems( ):
         if name in sys.argv:
             for k, v in t.iteritems( ):
                 settings[k] = v
-            return name
-    return None
+            return name, param
+    return None, param
 
 
 #
@@ -443,7 +452,7 @@ def test_idps():
     _logger = logging.getLogger()
     socket.setdefaulttimeout( settings["timeout"] )
     # so we perform specific tests?
-    test_name = handle_external_test()
+    test_name, test_param = handle_external_test()
 
     error_d = {
         "checked": str( datetime.now( ) ),
@@ -451,17 +460,20 @@ def test_idps():
         "settings": settings
     }
 
-    if test_name not in ("nagios", ):
+    if test_param not in ("nagios", ):
         _logger.info( "Starting to test [%s] from [%s] using test [%s]" % (
             settings["SP_URL"], settings["json_url"], test_name) )
 
     # special browser handling
+    test_fnc = test_default
     if test_name == "terena":
-        test_terena(error_d)
-    elif test_name == "nagios":
-        test_nagios(error_d)
+        test_fnc = test_terena
+    # do nagios testing
+    if test_param == "nagios":
+        test_nagios(error_d, test_fnc)
     else:
-        test_default(error_d)
+        test_fnc(error_d)
+
     save_errors(error_d)
 
 #
