@@ -1,0 +1,474 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
+"""
+    Had to add
+    none /dev/shm tmpfs rw,nosuid,nodev,noexec 0 0 to /etc/fstab
+    and run
+    sudo mount /dev/shm
+    in ubuntu
+
+"""
+
+import os
+import sys
+import json
+import codecs
+import urllib
+import time
+import re
+import mechanize
+import cgi
+import cookielib
+import socket
+from datetime import datetime
+import logging
+_logger = None
+#
+#
+
+settings = {
+    #
+    "json_url": "https://lindat.mff.cuni.cz/repository/xmlui/discojuice/feeds?callback=dj_md_1",
+    #
+    "SP_URL": "https://lindat.mff.cuni.cz/Shibboleth.sso/Login?SAMLDS=1&target=https://lindat.mff.cuni.cz/repository/xmlui/shibboleth-login&entityID=",
+
+    "external_tests": {
+        "weblicht": {
+            "SP_URL": "https://weblicht.sfs.uni-tuebingen.de/Shibboleth.sso/Login?SAMLDS=1&target=https://weblicht.sfs.uni-tuebingen.de/WebLicht-4/&entityID=",
+            "json_url": "http://catalog.clarin.eu/mw1/sds/proxy",
+        },
+        "terena": {
+            "SP_URL": "https://login.terena.org/wayf/module.php/discopower/disco.php",
+            "json_url": "https://login.terena.org/wayf/module.php/core/authenticate.php?as=default-sp",
+        },
+        "nagios": {},
+    },
+    #
+    "file_error_json": "/var/www/secure/aai-idp-errors.json",
+    #
+    "parallel_max": 20,
+    # 
+    "error_responses": (
+        "message did not meet security requirements",
+        "could not find",
+        "unhandledexc",
+        "error processing request",
+        "metadata not found",
+    ),
+    #
+    "timeout": 45.0,
+
+    #
+    "show_errors": True,
+
+    #
+    "ignore_error_countries": ( "BR", "FI", "DK" ),
+
+    #
+    "log_stdout": True,
+}
+
+
+#
+#
+def create_html(idps_str):
+    """
+        Main html page
+    """
+    return (u"""<html>
+    <head>
+        <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.min.css">
+        <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap-theme.min.css">
+        <script src="//netdna.bootstrapcdn.com/bootstrap/3.1.1/js/bootstrap.min.js"></script>
+    </head>
+    <body>
+        <div class="well">
+        %s
+        </div>
+    </body>
+</html>""" % idps_str).encode( "utf-8" )
+
+
+def exc2html(e):
+    import traceback
+    e_str = traceback.format_exc()
+    return u"""<div class="alert alert-danger">%s</div>""" % e_str.replace( "\n", "<br />" )
+
+
+def log_stdout(msg):
+    if settings["log_stdout"] is True:
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
+#
+#
+#
+
+def remove_duplicate_idps(idps_arr):
+    done = set()
+    new_arr = []
+    for a in idps_arr:
+        eid = a["entityID"]
+        if eid in done:
+            continue
+        done.add(eid)
+        new_arr.append( a )
+    return new_arr
+
+
+def login_url(entity_id):
+    return settings["SP_URL"] + entity_id
+
+
+def nav_from_idp(idp_json):
+    return idp_json.get( "country", "???" )
+
+
+def idp2html(idp_json, make_nav_link, pos):
+    eid = idp_json["entityID"]
+    title = idp_json.get( "title", eid )
+    country = idp_json.get( "country", "unknown" )
+    # hack for terena where we do not know EID
+    login_url_str = idp_json.get("login_url", login_url( eid ))
+    nav_link = "" if make_nav_link is False else u""" id="id-%s" """ % nav_from_idp( idp_json )
+    return u"""<li class="list-group-item"{nav_link}>
+    <a href="{login_url_str}" target="_blank">#{pos}.
+    <span class="badge" style="margin-right:20px">{country}</span>
+    {title}
+    </a>
+</li>""".format( **locals( ) )
+
+
+def settings2html(d):
+    return u"""<h3>Settings</h3>
+<div><span class="badge">idp json:</span> <pre>%s</pre></div>
+<div><Span class="badge">SP url:</span> <pre>%s</pre></div>
+</div>""" % (d["json_url"], d["SP_URL"])
+
+
+def json2nav(json_arr):
+    s = set( )
+    for i in json_arr:
+        s.add( nav_from_idp( i ) )
+    html = settings2html( settings )
+    html += u"""<h1>List of all IdPs</h1><ul class="nav nav-pills" style="font-size:80%">"""
+    for c in sorted( s ):
+        ahref = "#id-" + c
+        html += u"""<li><a href="%s">%s</a></li>""" % (ahref, c)
+    html += "</ul>"
+    return html
+
+
+def idp_from_arr(eid, arr):
+    for a in arr:
+        if a["entityID"] == eid:
+            return a
+    return None
+
+
+def errors2html(json_arr):
+    errors = json.load( open( settings["file_error_json"], mode="rb" ) )
+    errors_html = u"""<h2>Problematic IdPs checked at %s</h2>%s<div class="alert alert-danger">""" % (
+        errors["checked"], settings2html( errors["settings"] ))
+    i = 1
+    for eid, msg in errors["errors"]:
+        msg = cgi.escape( msg )
+        idp = idp_from_arr( eid, json_arr )
+        if idp is not None:
+            country = idp.get( "country", "???" )
+            if country in settings["ignore_error_countries"]:
+                continue
+            errors_html += u"""<div>#%d. <span class="badge">%s</span> <a href="%s">%s</a> %s</div>""" % (
+                i, country, login_url( eid ), idp.get( "title", eid ), msg)
+        else:
+            errors_html += "<div>#%d. %s - %s</div>" % (i, eid, msg)
+        i += 1
+    errors_html += u"</div>"
+    return errors_html
+
+
+def json2html(json_arr):
+    # add errors if found
+    errors_html = ""
+    if settings["show_errors"] and os.path.exists( settings["file_error_json"] ):
+        errors_html = errors2html( json_arr )
+    #
+    json_arr.sort( key=lambda x: x.get( "country", "??" ) )
+    html = errors_html + json2nav( json_arr ) + u"""<ul class="list-group">\n"""
+    last_nav = ""
+    for i, idp in enumerate(json_arr):
+        eid = idp["entityID"]
+        make_link = last_nav != nav_from_idp( idp )
+        html += idp2html( idp, make_link, i + 1 )
+        last_nav = nav_from_idp( idp )
+    html += "\n</ul>"
+    return html
+
+
+#
+#
+#
+
+def get_json(url):
+    """
+        Get list of IdPs with special handling of discojuice.
+    """
+    f = urllib.FancyURLopener().open( url )
+    json_str = f.read()
+    # discojuice to json
+    if json_str.find( "(" ) < 15:
+        json_str = json_str[json_str.find( "(" ) + 1: json_str.rfind( ")" )]
+    return json.loads( json_str )
+
+
+#
+# make html page
+#
+
+def utf_friendly():
+    reload( sys )
+    sys.setdefaultencoding( 'utf-8' )
+    sys.stdout = codecs.getwriter( 'utf-8' )( sys.stdout )
+
+def handle_params():
+    # any params?
+    args = cgi.FieldStorage( )
+    if "json_url" in args:
+        settings["json_url"] = urllib.unquote( args["json_url"].value )
+        settings["show_errors"] = False
+    if "SP_URL" in args:
+        settings["SP_URL"] = urllib.unquote( args["SP_URL"].value )
+        settings["show_errors"] = False
+
+
+def make_html():
+    import cgitb
+    utf_friendly()
+    cgitb.enable( )
+    print "Content-Type: text/html;charset=utf-8"
+    print
+    try:
+        handle_params()
+        json_obj = get_json( settings["json_url"] )
+        json_obj = remove_duplicate_idps(json_obj)
+        print create_html( json2html( json_obj ) )
+    except Exception, e:
+        print create_html( exc2html( e ) )
+
+
+#
+# make tests
+#
+
+def get_browser():
+    """ Test browser e.g., through mechanize. """
+    br = mechanize.Browser()
+    br.set_handle_robots( False )
+    br.set_handle_refresh( mechanize._http.HTTPRefreshProcessor( ), max_time=1 )
+    br.set_handle_equiv( True )
+    br.set_handle_redirect( True )
+    br.set_handle_referer( True )
+    cj = cookielib.LWPCookieJar()
+    br.set_cookiejar( cj )
+    br.addheaders = [('User-agent',
+                  #'Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) Gecko/2008071615 Fedora/3.0.1-1.fc9 Firefox/3.0.1'
+                  "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.154 Safari/537.36"
+                 )]
+    return br
+
+
+def test_idp((eid, url)):
+    """
+        Test idp through new / supplied browser instance.
+    """
+    exc = None
+    absolute_url = url
+    try:
+        br = get_browser() if not isinstance(eid, mechanize.Browser) else eid
+        if isinstance(url, mechanize.Link):
+            f = br.follow_link(url)
+            absolute_url = url.absolute_url
+        else:
+            f = br.open( url )
+        resp = f.read( ).lower( )
+
+        # all went ok?
+        if hasattr( f, "code" ):
+            if f.code not in (401, 200):
+                exc = u"http response code %d!" % f.code
+        else:
+            exc = br.error
+
+        if exc is None:
+            for k in settings["error_responses"]:
+                if k in resp:
+                    exc = "error keyword [%s] found in response" % k
+                    break
+    except Exception, e:
+        not_error = False
+        if hasattr( e, "hdrs" ):
+            for h in e.hdrs.headers:
+                # kerberos, see clarin-list
+                if "www-authenticate: negotiate" in h.lower( ):
+                    not_error = True
+                    break
+        if not not_error:
+            exc = unicode( e )
+    log_stdout( "." if exc is None else "x" )
+    time.sleep( 0.1 )
+    return u"[%s] %s requesting [%s]" % (eid, exc, absolute_url) if exc is not None else None
+
+
+def save_errors(error_d):
+    _logger.warning( "We have found %d errors" % len(error_d["errors"]) )
+    if len( error_d["errors"] ) > 0:
+        json.dump( error_d, open( settings["file_error_json"], 'w+' ) )
+    else:
+        try:
+            os.remove( settings["file_error_json"] )
+        except:
+            pass
+
+
+#
+#
+#
+
+def test_terena(error_d):
+    br = get_browser()
+    br.open( settings["json_url"] )
+    max_links = len(list(br.links(url_regex="idpentityid=.+")))
+    want = 0
+    done = set()
+    while want < max_links:
+        for i, link in enumerate(list(br.links(url_regex="idpentityid=.+"))):
+            if i < want:
+                continue
+            title = link.text.strip()
+            if title in done:
+                # take the next one
+                want += 1
+                continue
+            done.add(title)
+            url = link.absolute_url
+            _logger.info( "#%d: %s" % (i + 1, title) )
+            msg = test_idp( (br, link) )
+            _logger.info( "\t - %s\n" % ( "\n\t" + msg if msg is not None else "OK") )
+            if msg is not None:
+                idpentityid = re.compile("idpentityid=(.*)$").search(url)
+                if idpentityid is not None:
+                    idpentityid = urllib.unquote(idpentityid.group(1))
+                error_d["errors"].append(
+                    (title, u"%s - " % idpentityid + msg) )
+            br.open( settings["json_url"] )
+            break
+        want += 1
+
+def test_nagios(error_d):
+    global settings
+    settings["log_stdout"] = False
+    took = time.time()
+    test_default(error_d) 
+    took = time.time() - took
+
+    def _exit( code, msg_str, time_d ):
+        """
+            OK = 0
+            WARN = 1
+            EXC = 2
+        """
+        warn_time, crit_time, min_time, max_time = _env["NAGIOS_VALS"][code]
+        msg_whole = "%s total time [%ss] with ret code [%s]|time=%ss;%s;%s;%s;%s\n" % (
+          msg_str, time_d, code, int(time_d), warn_time, crit_time, min_time, max_time)
+        print( msg_whole )
+        _log(msg_whole)
+        sys.exit(code)
+
+    msg = u"OK - checked [%d] idps" % len(error_d["settings"]["idps_count"])
+    if len(error_d["errors"]) == 0:
+        _exit( 0, msg, took )
+    else:
+        # only info
+        msg = u"NOT " + msg
+        for e in errors_d["errors"]:
+            msg += u"\n %d" % e[0]
+        _exit( 0, msg, took )
+
+
+def test_default(error_d):
+    json_obj = get_json( settings["json_url"] )
+    json_obj = remove_duplicate_idps(json_obj)
+    error_d["settings"]["idps_count"] = len(json_obj)
+
+    urls_to_check = [(x["entityID"], login_url( x["entityID"] )) for x in json_obj]
+    # single threaded
+    if settings["parallel_max"] < 2:
+        #if False:
+        for i, (eid, u) in enumerate( urls_to_check ):
+            if "apu.uepb.edu.br" not in eid:
+                continue
+            log_stdout( "#%d: %s" % (i + 1, eid) )
+            msg = test_idp( (eid, u) )
+            log_stdout( " - %s\n" % ( "\n\t" + msg if msg is not None else "OK") )
+            if msg is not None:
+                error_d["errors"].append( (eid, msg) )
+    else:
+        from multiprocessing import Pool
+        slaves = Pool( settings["parallel_max"] )
+        ret = [x for x in slaves.map( test_idp, urls_to_check )]
+        slaves.close( )
+        slaves.join( )
+        for err in [x for x in ret if x is not None]:
+            eid = err[1:err.find( "]" )]
+            error_d["errors"].append( (eid, err) )
+
+
+def handle_external_test():
+    for name, t in settings["external_tests"].iteritems( ):
+        if name in sys.argv:
+            for k, v in t.iteritems( ):
+                settings[k] = v
+            return name
+    return None
+
+
+#
+#
+#
+
+def test_idps():
+    global _logger
+    logging.basicConfig(
+        level=logging.DEBUG, format='%(asctime)-15s %(message)s')
+    _logger = logging.getLogger()
+    socket.setdefaulttimeout( settings["timeout"] )
+    # so we perform specific tests?
+    test_name = handle_external_test()
+
+    error_d = {
+        "checked": str( datetime.now( ) ),
+        "errors": [],
+        "settings": settings
+    }
+
+    if test_name not in ("nagios", ):
+        _logger.info( "Starting to test [%s] from [%s] using test [%s]" % (
+            settings["SP_URL"], settings["json_url"], test_name) )
+
+    # special browser handling
+    if test_name == "terena":
+        test_terena(error_d)
+    elif test_name == "nagios":
+        test_nagios(error_d)
+    else:
+        test_default(error_d)
+    save_errors(error_d)
+
+#
+# cmd vs web server run
+#
+
+if "test" in sys.argv:
+    test_idps( )
+else:
+    make_html( )
