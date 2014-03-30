@@ -404,7 +404,7 @@ def test_nagios(error_d, test_fnc):
         # only info
         msg = u"NOT " + msg
         ignore_errors = 0
-        for eid, msg in error_d["errors"]:
+        for eid, _1 in error_d["errors"]:
             idp = idp_from_arr( eid, json_obj )
             if idp is not None and "country" in idp:
                 country = idp["country"]
