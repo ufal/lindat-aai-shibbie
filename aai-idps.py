@@ -46,7 +46,7 @@ settings = {
     #
     "file_error_json": "/var/www/secure/aai-idp-errors.json",
     #
-    "parallel_max": 0,
+    "parallel_max": 20,
     # 
     "error_responses": (
         "message did not meet security requirements",
@@ -371,12 +371,13 @@ def test_terena(error_d):
             br.open( settings["json_url"] )
             break
         want += 1
+    return []
 
 def test_nagios(error_d, test_fnc):
     global settings
     settings["log_stdout"] = False
     took = time.time()
-    test_fnc(error_d) 
+    json_obj = test_fnc(error_d) 
     took = time.time() - took
 
     def _exit( code, msg_str, time_d ):
@@ -387,7 +388,12 @@ def test_nagios(error_d, test_fnc):
         """
         warn_time, crit_time, min_time, max_time = settings["NAGIOS_VALS"][code]
         msg_whole = "%s total time [%ss] with ret code [%s]|time=%ss;%s;%s;%s;%s\n" % (
-          msg_str, time_d, code, int(time_d), warn_time, crit_time, min_time, max_time)
+          msg_str, time_d, code, 
+          int(time_d), 
+          warn_time, 
+          len(json_obj), 
+          0,
+          len(json_obj) )
         print( msg_whole )
         sys.exit(code)
 
@@ -397,9 +403,19 @@ def test_nagios(error_d, test_fnc):
     else:
         # only info
         msg = u"NOT " + msg
-        for e in error_d["errors"]:
-            msg += u"<br /> %s" % e[0]
-        _exit( 0, msg, took )
+        ignore_errors = 0
+        for eid, msg in error_d["errors"]:
+            idp = idp_from_arr( eid, json_obj )
+            if idp is not None and "country" in idp:
+                country = idp["country"]
+                if country in settings["ignore_error_countries"]:
+                    ignore_errors += 1
+                    continue
+            #msg += u"       \t  %s" % eid
+        real_errors = len(error_d["errors"]) - ignore_errors
+        msg += u" from which [%d] are errors ([%d] total errors)" % (
+            real_errors, len(error_d["errors"]))
+        _exit( 0, msg, real_errors )
 
 
 def test_default(error_d):
@@ -426,6 +442,7 @@ def test_default(error_d):
         for err in [x for x in ret if x is not None]:
             eid = err[1:err.find( "]" )]
             error_d["errors"].append( (eid, err) )
+    return json_obj
 
 
 def handle_external_test():
