@@ -46,7 +46,7 @@ settings = {
     #
     "file_error_json": "/var/www/secure/aai-idp-errors.json",
     #
-    "parallel_max": 20,
+    "parallel_max": 10,
     # 
     "error_responses": (
         "message did not meet security requirements",
@@ -56,7 +56,7 @@ settings = {
         "metadata not found",
     ),
     #
-    "timeout": 45.0,
+    "timeout": 35.0,
 
     #
     "show_errors": True,
@@ -66,14 +66,9 @@ settings = {
 
     #
     "log_stdout": True,
-    #
-    "NAGIOS_VALS": {
-        0: (120,240,0,240),
-        1: (120,240,0,240),
-        2: (0,1,0,1),
-        3: (0,1,0,480),
-    },
 
+    # 10-minutes
+    "execution_maxtime": 60*10,
 }
 
 
@@ -386,23 +381,23 @@ def test_nagios(error_d, test_fnc):
             WARN = 1
             EXC = 2
         """
-        warn_time, crit_time, min_time, max_time = settings["NAGIOS_VALS"][code]
-        msg_whole = "%s total time [%ss] with ret code [%s]|time=%ss;%s;%s;%s;%s\n" % (
+        #HTTP OK: HTTP/1.1 200 OK - 106963 bytes in 0.053 second response time |time=0.052710s;10.000000;20.000000;0.000000 size=106963B;;;0
+        msg_whole = "%s total time [%s.0s] with ret code [%s] |time=%ss;%s;%s;%s;%s\n" % (
           msg_str, time_d, code, 
           int(time_d), 
-          warn_time, 
+          len(json_obj) / 2, 
           len(json_obj), 
           0,
           len(json_obj) )
         print( msg_whole )
         sys.exit(code)
 
-    msg = u"OK - checked [%d] idps" % error_d["settings"]["idps_count"]
+    msg = "OK: checked [%d] idps" % error_d["settings"]["idps_count"]
     if len(error_d["errors"]) == 0:
         _exit( 0, msg, took )
     else:
         # only info
-        msg = u"NOT " + msg
+        msg = "NOT " + msg
         ignore_errors = 0
         for eid, _1 in error_d["errors"]:
             idp = idp_from_arr( eid, json_obj )
@@ -413,7 +408,7 @@ def test_nagios(error_d, test_fnc):
                     continue
             #msg += u"       \t  %s" % eid
         real_errors = len(error_d["errors"]) - ignore_errors
-        msg += u" from which [%d] are errors ([%d] total errors)" % (
+        msg += " from which [%d] are errors, [%d] total errors" % (
             real_errors, len(error_d["errors"]))
         _exit( 0, msg, real_errors )
 
@@ -423,8 +418,20 @@ def test_default(error_d):
     json_obj = remove_duplicate_idps(json_obj)
     error_d["settings"]["idps_count"] = len(json_obj)
 
+    # limit time execution
+    #
+    try:
+        import signal
+        def signal_handler(signum, frame):
+            sys.exit(1)
+        signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(settings["execution_maxtime"])
+    except:
+        pass
+    
     urls_to_check = [(x["entityID"], login_url( x["entityID"] )) for x in json_obj]
     # single threaded
+    #
     if settings["parallel_max"] < 2:
         #if False:
         for i, (eid, u) in enumerate( urls_to_check ):
@@ -433,6 +440,8 @@ def test_default(error_d):
             log_stdout( " - %s\n" % ( "\n\t" + msg if msg is not None else "OK") )
             if msg is not None:
                 error_d["errors"].append( (eid, msg) )
+    # parallel
+    #
     else:
         from multiprocessing import Pool
         slaves = Pool( settings["parallel_max"] )
