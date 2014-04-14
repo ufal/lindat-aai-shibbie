@@ -423,7 +423,7 @@ def test_default(error_d):
     try:
         import signal
         def signal_handler(signum, frame):
-            sys.exit(1)
+            os._exit(1)
         signal.signal(signal.SIGALRM, signal_handler)
         signal.alarm(settings["execution_maxtime"])
     except:
