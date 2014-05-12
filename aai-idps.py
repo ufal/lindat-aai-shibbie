@@ -62,7 +62,7 @@ settings = {
     "show_errors": True,
 
     #
-    "ignore_error_countries": ( "BR", "FI", "DK" ),
+    "ignore_error_countries": ( "BR", ),
 
     #
     "log_stdout": True,
@@ -216,6 +216,8 @@ def get_json(url):
     """
         Get list of IdPs with special handling of discojuice.
     """
+    if url is None:
+        return {}
     f = urllib.FancyURLopener().open( url )
     json_str = f.read()
     # discojuice to json
