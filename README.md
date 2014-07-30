@@ -1,5 +1,5 @@
 Shibboleth IdP QA
------------------
+=====
 
 
 This tool loads a list of IdPs from a json file (or specific html parsing for terena) and uses
@@ -20,5 +20,19 @@ Or use it to display the results in html (or set of IdPs if no results ara avail
 python aai-idps.py
 ```
 
+You can also use it as a [nagios](http://www.nagios.org/) probe by specifying
 
-If you have an academic account, try logging to https://lindat.mff.cuni.cz/secure/aai-idps-clarin .   
+```
+python aai-idps.py test nagios
+```
+
+If you have an academic account, try logging to https://lindat.mff.cuni.cz/secure/aai-idps-clarin .
+   
+Notes
+-----------------
+
+This tool runs in parallel so be careful not to overload the servers!
+
+National Federations (NF) admins can be touchy if you scan a lot of IdPs regularly.
+
+Run this tool (regularly) *only* on SPs which have been informed in advance (and agreed!).
