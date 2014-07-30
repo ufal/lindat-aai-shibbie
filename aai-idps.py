@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # coding=utf-8
+#
+# by LINDAT/CLARIN dev team (http://lindat.cz, jm)
+# @2013
 
 """
     You should have shm enabled if run in parallel:
