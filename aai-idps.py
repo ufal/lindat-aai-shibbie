@@ -1,13 +1,15 @@
 #!/usr/bin/env python
- 
-# -*- coding: UTF-8 -*-
-"""
-    Had to add
-    none /dev/shm tmpfs rw,nosuid,nodev,noexec 0 0 to /etc/fstab
-    and run
-    sudo mount /dev/shm
-    in ubuntu
+# coding=utf-8
+#
+# by LINDAT/CLARIN dev team (http://lindat.cz, jm)
+# @2013
 
+"""
+    You should have shm enabled if run in parallel:
+    Add:
+        none /dev/shm tmpfs rw,nosuid,nodev,noexec 0 0
+    to /etc/fstab and run
+        sudo mount /dev/shm
 """
 
 import os
@@ -33,4 +35,3 @@ if "test" in sys.argv:
     aai_idps_core.test_idps( )
 else:
     aai_idps_core.make_html( )
-

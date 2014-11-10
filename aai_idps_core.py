@@ -1,13 +1,15 @@
 #!/usr/bin/env python
- 
-# -*- coding: UTF-8 -*-
-"""
-    Had to add
-    none /dev/shm tmpfs rw,nosuid,nodev,noexec 0 0 to /etc/fstab
-    and run
-    sudo mount /dev/shm
-    in ubuntu
+# coding=utf-8
+#
+# by LINDAT/CLARIN dev team (http://lindat.cz, jm)
+# @2013
 
+"""
+    You should have shm enabled if run in parallel:
+    Add:
+        none /dev/shm tmpfs rw,nosuid,nodev,noexec 0 0
+    to /etc/fstab and run
+        sudo mount /dev/shm
 """
 
 import os
@@ -216,7 +218,6 @@ def json2html(json_arr):
     html = errors_html + json2nav( json_arr ) + u"""<ul class="list-group">\n"""
     last_nav = ""
     for i, idp in enumerate(json_arr):
-        eid = idp["entityID"]
         make_link = last_nav != nav_from_idp( idp )
         html += idp2html( idp, make_link, i + 1 )
         last_nav = nav_from_idp( idp )
@@ -246,10 +247,15 @@ def get_json(url):
 # make html page
 #
 
+# noinspection PyBroadException,PyUnresolvedReferences
 def utf_friendly():
     reload( sys )
-    sys.setdefaultencoding( 'utf-8' )
+    try:
+        sys.setdefaultencoding( 'utf-8' )
+    except:
+        pass
     sys.stdout = codecs.getwriter( 'utf-8' )( sys.stdout )
+
 
 def handle_params():
     # any params?
@@ -281,6 +287,7 @@ def make_html():
 # make tests
 #
 
+# noinspection PyProtectedMember,PyUnresolvedReferences
 def get_browser():
     """ Test browser e.g., through mechanize. """
     br = mechanize.Browser()
@@ -292,9 +299,9 @@ def get_browser():
     cj = cookielib.LWPCookieJar()
     br.set_cookiejar( cj )
     br.addheaders = [('User-agent',
-                  #'Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) Gecko/2008071615 Fedora/3.0.1-1.fc9 Firefox/3.0.1'
-                  "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.154 Safari/537.36"
-                 )]
+        #'Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) Gecko/2008071615 Fedora/3.0.1-1.fc9 Firefox/3.0.1'
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.154 Safari/537.36"
+        )]
     return br
 
 
@@ -340,6 +347,7 @@ def test_idp((eid, url)):
     return u"[%s] %s requesting [%s]" % (eid, exc, absolute_url) if exc is not None else None
 
 
+# noinspection PyBroadException
 def save_errors(error_d):
     _logger.warning( "We have found %d errors" % len(error_d["errors"]) )
     if len( error_d["errors"] ) > 0:
@@ -386,6 +394,7 @@ def test_terena(error_d):
         want += 1
     return []
 
+
 def test_nagios(error_d, test_fnc):
     global settings
     settings["log_stdout"] = False
@@ -399,14 +408,15 @@ def test_nagios(error_d, test_fnc):
             WARN = 1
             EXC = 2
         """
-        #HTTP OK: HTTP/1.1 200 OK - 106963 bytes in 0.053 second response time |time=0.052710s;10.000000;20.000000;0.000000 size=106963B;;;0
+        #HTTP OK: HTTP/1.1 200 OK - 106963 bytes in 0.053 second response \
+        #   time |time=0.052710s;10.000000;20.000000;0.000000 size=106963B;;;0
         msg_whole = "%s total time [%s.0s] with ret code [%s] |time=%ss;%s;%s;%s;%s\n" % (
-          msg_str, time_d, code, 
-          int(time_d), 
-          len(json_obj) / 2, 
-          len(json_obj), 
-          0,
-          len(json_obj) )
+            msg_str, time_d, code,
+            int(time_d),
+            len(json_obj) / 2,
+            len(json_obj),
+            0,
+            len(json_obj) )
         print( msg_whole )
         sys.exit(code)
 
@@ -431,6 +441,7 @@ def test_nagios(error_d, test_fnc):
         _exit( 0, msg, real_errors )
 
 
+# noinspection PyUnresolvedReferences,PyBroadException
 def test_default(error_d):
     json_obj = get_json( settings["json_url"] )
     json_obj = remove_duplicate_idps(json_obj)
@@ -440,6 +451,7 @@ def test_default(error_d):
     #
     try:
         import signal
+        # noinspection PyProtectedMember
         def signal_handler(signum, frame):
             os._exit(1)
         signal.signal(signal.SIGALRM, signal_handler)
