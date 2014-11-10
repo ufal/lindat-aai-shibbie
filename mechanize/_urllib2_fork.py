@@ -451,7 +451,7 @@ class HTTPErrorProcessor(BaseHandler):
 
         # According to RFC 2616, "2xx" code indicates that the client's
         # request was successfully received, understood, and accepted.
-        if not (200 <= code < 300) and not code == 401:
+        if not (200 <= code < 300):
             # hardcoded http is NOT a bug
             response = self.parent.error(
                 'http', request, response, code, msg, hdrs)
@@ -796,14 +796,12 @@ class AbstractBasicAuthHandler:
         # authority
         # XXX could be multiple headers
         authreq = headers.get(authreq, None)
-
         if authreq:
             mo = AbstractBasicAuthHandler.rx.search(authreq)
             if mo:
                 scheme, quote, realm = mo.groups()
                 if scheme.lower() == 'basic':
                     return self.retry_http_basic_auth(host, req, realm)
-
 
     def retry_http_basic_auth(self, host, req, realm):
         user, pw = self.passwd.find_user_password(realm, host)
@@ -826,8 +824,6 @@ class HTTPBasicAuthHandler(AbstractBasicAuthHandler, BaseHandler):
 
     def http_error_401(self, req, fp, code, msg, headers):
         url = req.get_full_url()
-        if code == 401:
-            return
         return self.http_error_auth_reqed('www-authenticate',
                                           url, req, headers)
 
@@ -1070,7 +1066,7 @@ class AbstractHTTPHandler(BaseHandler):
 
         return request
 
-    def do_open(self, http_class, req):
+    def do_open(self, http_class, req, recursive=False):
         """Return an addinfourl object for the request, using http_class.
 
         http_class must implement the HTTPConnection API from httplib.
@@ -1119,6 +1115,39 @@ class AbstractHTTPHandler(BaseHandler):
             h.request(req.get_method(), req.get_selector(), req.data, headers)
             r = h.getresponse()
         except socket.error, err: # XXX what error?
+            import httplib
+            from httplib import HTTPConnection, HTTPS_PORT
+            import ssl
+
+            class MassiveHackTLS(HTTPConnection):
+                "This class allows communication via SSL."
+                default_port = HTTPS_PORT
+
+                def __init__(self, host, port=None, key_file=None, cert_file=None,
+                        strict=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+                        source_address=None):
+                    HTTPConnection.__init__(self, host, port, strict, timeout,
+                            source_address)
+                    self.key_file = key_file
+                    self.cert_file = cert_file
+
+                def connect(self):
+                    "Connect to a host on a given (SSL) port."
+                    sock = socket.create_connection((self.host, self.port),
+                            self.timeout, self.source_address)
+                    if self._tunnel_host:
+                        self.sock = sock
+                        self._tunnel()
+                    # this is the only line we modified from the httplib.py file
+                    # we added the ssl_version variable
+                    self.sock = ssl.wrap_socket(sock, self.key_file, self.cert_file, ssl_version=ssl.PROTOCOL_TLSv1)
+
+            if not recursive:
+                # hack TLS
+                try:
+                    return self.do_open( MassiveHackTLS, req, True )
+                except:
+                    pass
             raise URLError(err)
 
         # Pick apart the HTTPResponse object to get the addinfourl
