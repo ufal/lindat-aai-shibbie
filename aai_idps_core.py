@@ -342,9 +342,10 @@ def test_idp((eid, url)):
                     break
         if not not_error:
             exc = unicode( e )
-    log_stdout( "." if exc is None else "x" )
-    time.sleep( 0.1 )
-    return u"[%s] %s requesting [%s]" % (eid, exc, absolute_url) if exc is not None else None
+    msg = u"[%s] %s requesting [%s]" % (eid, exc, absolute_url) if exc is not None else None
+    log_stdout( "." if exc is None else "\nx - %s\n" % msg )
+    time.sleep( 0.2 )
+    return msg
 
 
 # noinspection PyBroadException
