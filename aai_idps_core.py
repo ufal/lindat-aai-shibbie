@@ -317,7 +317,7 @@ def test_idp((eid, url)):
             f = br.follow_link(url)
             absolute_url = url.absolute_url
         else:
-            f = br.open( url )
+            f = br.open( url, timeout=settings["timeout"] )
         resp = f.read( ).lower( )
 
         # all went ok?
@@ -352,7 +352,7 @@ def test_idp((eid, url)):
 def save_errors(error_d):
     _logger.warning( "We have found %d errors" % len(error_d["errors"]) )
     if len( error_d["errors"] ) > 0:
-        json.dump( error_d, open( settings["file_error_json"], 'w+' ) )
+        json.dump( error_d, open( settings["file_error_json"], 'w+' ), indent=4 )
     else:
         try:
             os.remove( settings["file_error_json"] )
