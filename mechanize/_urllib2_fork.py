@@ -1115,26 +1115,26 @@ class AbstractHTTPHandler(BaseHandler):
             h.request(req.get_method(), req.get_selector(), req.data, headers)
             r = h.getresponse()
         except socket.error, err: # XXX what error?
-            import httplib
-            from httplib import HTTPConnection, HTTPS_PORT
+            from httplib import HTTPS_PORT
             import ssl
-
-            class MassiveHackTLS(HTTPConnection):
+            class MassiveHackTLS(httplib.HTTPConnection):
                 "This class allows communication via SSL."
                 default_port = HTTPS_PORT
 
                 def __init__(self, host, port=None, key_file=None, cert_file=None,
                         strict=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
                         source_address=None):
-                    HTTPConnection.__init__(self, host, port, strict, timeout,
-                            source_address)
+                    httplib.HTTPConnection.__init__(self, host, port, strict, timeout)
                     self.key_file = key_file
                     self.cert_file = cert_file
+                    self.source_address = source_address
 
                 def connect(self):
                     "Connect to a host on a given (SSL) port."
-                    sock = socket.create_connection((self.host, self.port),
-                            self.timeout, self.source_address)
+                    try:
+                        sock = socket.create_connection((self.host, self.port), self.timeout, self.source_address )
+                    except:
+                        sock = socket.create_connection((self.host, self.port), self.timeout )
                     if self._tunnel_host:
                         self.sock = sock
                         self._tunnel()
