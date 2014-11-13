@@ -141,7 +141,8 @@ def add_more_information(idps_arr):
         for idp in root.findall("{urn:oasis:names:tc:SAML:2.0:metadata}EntityDescriptor"):
             eid = idp.attrib.get("entityID")
             if eid not in idps:
-                idps[eid] = { "technical" : "<<unknown>>" }
+                idps[eid] = { "technical" : "<<unknown>>", "files": [] }
+            idps[eid]["files"].append( f )
             for child in idp:
                 if child.tag.endswith("ContactPerson"):
                     for cc in child:
@@ -238,6 +239,11 @@ def errors2html(json_arr):
             content = u"""<span class="btn btn-danger btn-xs">%s</span> - %s""" % (eid, msg)
         if "technical" in idp:
             content += u"""<br><div class="label label-info">%s</div>""" % (idp["technical"],)
+        if "files" in idp:
+            for f in idp["files"]:
+                content += u"""<span class="label label-default">%s</spa>""" % os.path.basename(
+                    f).replace(".xml", "")
+
         errors_html += u"""<li class="">%s</li>""" % (content)
     errors_html += u"</ol></div>"
     return errors_html
