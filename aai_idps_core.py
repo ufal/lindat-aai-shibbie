@@ -73,7 +73,12 @@ settings = {
     "log_stdout": True,
 
     # 10-minutes
-    "execution_maxtime": 60*10,
+    "execution_maxtime": 60*30,
+
+    # idps list for technical contact
+    "idps": [],
+
+    "wait": 0.2,
 }
 
 
@@ -124,6 +129,30 @@ def log_stdout(msg):
 #
 #
 #
+
+def add_more_information(idps_arr):
+    import xml.etree.ElementTree as ET
+    idps = {}
+    for f in settings["idps"]:
+        if not os.path.exists(f):
+            continue
+        tree = ET.parse(f)
+        root = tree.getroot() 
+        for idp in root.findall("{urn:oasis:names:tc:SAML:2.0:metadata}EntityDescriptor"):
+            eid = idp.attrib.get("entityID")
+            if eid not in idps:
+                idps[eid] = { "technical" : "<<unknown>>" }
+            for child in idp:
+                if child.tag.endswith("ContactPerson"):
+                    for cc in child:
+                        if cc.tag.endswith("EmailAddress"):
+                            idps[eid][child.attrib.get("contactType")] = cc.text
+                            break
+    for idp in idps_arr:
+        eid = idp["entityID"]
+        idp.update( idps.get( eid, {} ) )
+
+    return idps_arr
 
 def remove_duplicate_idps(idps_arr):
     done = set()
@@ -189,9 +218,11 @@ def idp_from_arr(eid, arr):
 
 def errors2html(json_arr):
     errors = json.load( open( settings["file_error_json"], mode="rb" ) )
-    errors_html = u"""<h2>Problematic IdPs checked at %s</h2>%s<div class="alert alert-danger">""" % (
+    errors_html = u"""
+    <h2>Problematic IdPs checked at %s</h2>
+    %s
+    <ol class="list-panel">""" % (
         errors["checked"], settings2html( errors["settings"] ))
-    i = 1
     for eid, msg in errors["errors"]:
         msg = cgi.escape( msg )
         idp = idp_from_arr( eid, json_arr )
@@ -199,23 +230,27 @@ def errors2html(json_arr):
             country = idp.get( "country", "???" )
             if country in settings["ignore_error_countries"]:
                 continue
-            errors_html += u"""<div>#%d. <span class="badge">%s</span> <a href="%s">%s</a> %s</div>""" % (
-                i, country, login_url( eid ), idp.get( "title", eid ), msg)
+            content = u"""
+            <span class="badge">%s</span> <strong><a href="%s" class="btn btn-danger btn-xs">%s</a></strong>
+            <br>
+            %s""" % (country, login_url( eid ), idp.get( "title", eid ), msg)
         else:
-            errors_html += "<div>#%d. %s - %s</div>" % (i, eid, msg)
-        i += 1
-    errors_html += u"</div>"
+            content = u"""<span class="btn btn-danger btn-xs">%s</span> - %s""" % (eid, msg)
+        if "technical" in idp:
+            content += u"""<br><div class="label label-info">%s</div>""" % (idp["technical"],)
+        errors_html += u"""<li class="">%s</li>""" % (content)
+    errors_html += u"</ol></div>"
     return errors_html
 
 
 def json2html(json_arr):
     # add errors if found
-    errors_html = ""
+    html = ""
     if settings["show_errors"] and os.path.exists( settings["file_error_json"] ):
-        errors_html = errors2html( json_arr )
+        html += errors2html( json_arr )
     #
     json_arr.sort( key=lambda x: x.get( "country", "??" ) )
-    html = errors_html + json2nav( json_arr ) + u"""<ul class="list-group">\n"""
+    html += json2nav( json_arr ) + u"""<ul class="list-group">\n"""
     last_nav = ""
     for i, idp in enumerate(json_arr):
         make_link = last_nav != nav_from_idp( idp )
@@ -278,6 +313,7 @@ def make_html():
         handle_params()
         json_obj = get_json( settings["json_url"] )
         json_obj = remove_duplicate_idps(json_obj)
+        json_obj = add_more_information(json_obj)
         print create_html( json2html( json_obj ) )
     except Exception, e:
         print create_html( exc2html( e ) )
@@ -344,7 +380,7 @@ def test_idp((eid, url)):
             exc = unicode( e )
     msg = u"[%s] %s requesting [%s]" % (eid, exc, absolute_url) if exc is not None else None
     log_stdout( "." if exc is None else "\nx - %s\n" % msg )
-    time.sleep( 0.2 )
+    time.sleep( settings["wait"] )
     return msg
 
 
@@ -454,6 +490,7 @@ def test_default(error_d):
         import signal
         # noinspection PyProtectedMember
         def signal_handler(signum, frame):
+            log_stdout( ".. taking too long (increase execution_maxtime setting), exitting..." )
             os._exit(1)
         signal.signal(signal.SIGALRM, signal_handler)
         signal.alarm(settings["execution_maxtime"])
@@ -532,3 +569,4 @@ def test_idps():
         test_fnc(error_d)
 
     save_errors(error_d)
+
