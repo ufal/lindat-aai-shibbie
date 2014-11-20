@@ -235,14 +235,14 @@ def errors2html(json_arr):
             <span class="badge">%s</span> <strong><a href="%s" class="btn btn-danger btn-xs">%s</a></strong>
             <br>
             %s""" % (country, login_url( eid ), idp.get( "title", eid ), msg)
+            if "technical" in idp:
+                content += u"""<br><div class="label label-info">%s</div>""" % (idp["technical"],)
+            if "files" in idp:
+                for f in idp["files"]:
+                    content += u"""<span class="label label-default">%s</spa>""" % os.path.basename(
+                        f).replace(".xml", "")
         else:
             content = u"""<span class="btn btn-danger btn-xs">%s</span> - %s""" % (eid, msg)
-        if "technical" in idp:
-            content += u"""<br><div class="label label-info">%s</div>""" % (idp["technical"],)
-        if "files" in idp:
-            for f in idp["files"]:
-                content += u"""<span class="label label-default">%s</spa>""" % os.path.basename(
-                    f).replace(".xml", "")
 
         errors_html += u"""<li class="">%s</li>""" % (content)
     errors_html += u"</ol></div>"
