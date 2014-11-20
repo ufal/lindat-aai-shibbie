@@ -1066,6 +1066,36 @@ class AbstractHTTPHandler(BaseHandler):
 
         return request
 
+    def do_open_tlsv1(self, req, h, headers):
+        try:
+            import ssl
+            try:
+                sock = socket.create_connection(
+                    (h.host, h.port), h.timeout, h.source_address )
+            except:
+                sock = socket.create_connection(
+                    (h.host, h.port), h.timeout )
+            if h._tunnel_host:
+                h.sock = sock
+                h._tunnel()
+
+            h.sock = ssl.wrap_socket(
+                sock,
+                h.key_file,
+                h.cert_file,
+                ssl_version=ssl.PROTOCOL_TLSv1,
+                do_handshake_on_connect=False
+            )
+            h.request(req.get_method(), req.get_selector(), req.data, headers)
+            return h.getresponse()
+        except Exception, e:
+            pass
+        return None
+
+    def do_open_default(self, req, h, headers):
+        h.request(req.get_method(), req.get_selector(), req.data, headers)
+        return h.getresponse()
+
     def do_open(self, http_class, req, recursive=False):
         """Return an addinfourl object for the request, using http_class.
 
@@ -1111,44 +1141,24 @@ class AbstractHTTPHandler(BaseHandler):
                 set_tunnel = h.set_tunnel
             set_tunnel(req._tunnel_host)
 
+        r = None
+        err = None
+
+        # default open hangs in specific python versions
         try:
-            h.request(req.get_method(), req.get_selector(), req.data, headers)
-            r = h.getresponse()
-        except socket.error, err: # XXX what error?
-            from httplib import HTTPS_PORT
-            import ssl
-            class MassiveHackTLS(httplib.HTTPConnection):
-                "This class allows communication via SSL."
-                default_port = HTTPS_PORT
+            r = self.do_open_tlsv1( req, h, headers )
+        except:
+            pass
 
-                def __init__(self, host, port=None, key_file=None, cert_file=None,
-                        strict=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
-                        source_address=None):
-                    httplib.HTTPConnection.__init__(self, host, port, strict, timeout)
-                    self.key_file = key_file
-                    self.cert_file = cert_file
-                    self.source_address = source_address
+        if r is None:
+            try:
+                r = self.do_open_default(req, h, headers)
+            except socket.error, err: # XXX what error?
+                err = URLError(err)
 
-                def connect(self):
-                    "Connect to a host on a given (SSL) port."
-                    try:
-                        sock = socket.create_connection((self.host, self.port), self.timeout, self.source_address )
-                    except:
-                        sock = socket.create_connection((self.host, self.port), self.timeout )
-                    if self._tunnel_host:
-                        self.sock = sock
-                        self._tunnel()
-                    # this is the only line we modified from the httplib.py file
-                    # we added the ssl_version variable
-                    self.sock = ssl.wrap_socket(sock, self.key_file, self.cert_file, ssl_version=ssl.PROTOCOL_TLSv1)
-
-            if not recursive:
-                # hack TLS
-                try:
-                    return self.do_open( MassiveHackTLS, req, True )
-                except:
-                    pass
-            raise URLError(err)
+        # raise on error
+        if r is None:
+            raise err
 
         # Pick apart the HTTPResponse object to get the addinfourl
         # object initialized properly.
