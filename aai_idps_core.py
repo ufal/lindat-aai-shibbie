@@ -351,6 +351,7 @@ def test_idp((eid, url)):
     """
         Test idp through new / supplied browser instance.
     """
+    socket.setdefaulttimeout( settings["timeout"] )
     exc = None
     absolute_url = url
     try:
@@ -575,4 +576,3 @@ def test_idps():
         test_fnc(error_d)
 
     save_errors(error_d)
-
