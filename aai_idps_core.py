@@ -61,7 +61,7 @@ settings = {
         "metadata not found",
     ),
     #
-    "timeout": 35.0,
+    "timeout": 55.0,
 
     #
     "show_errors": True,
@@ -368,7 +368,7 @@ def test_idp((eid, url)):
             if f.code not in (401, 200):
                 exc = u"http response code %d!" % f.code
         else:
-            exc = br.error
+            exc = "<no code> " + br.error
 
         if exc is None:
             for k in settings["error_responses"]:
@@ -384,16 +384,16 @@ def test_idp((eid, url)):
                     not_error = True
                     break
         if not not_error:
-            exc = unicode( e )
-    msg = u"[%s] %s requesting [%s]" % (eid, exc, absolute_url) if exc is not None else None
+            exc = "<%s:%s>" % (type(e), unicode(e))
+    msg = u"[%s] [%s] requesting [%s]" % (eid, exc, absolute_url) if exc is not None else None
     log_stdout( "." if exc is None else "\nx - %s\n" % msg )
     time.sleep( settings["wait"] )
     return msg
 
 
 # noinspection PyBroadException
-def save_errors(error_d):
-    _logger.warning( "We have found %d errors" % len(error_d["errors"]) )
+def save_errors(error_d, lasted):
+    _logger.warning( "We have found %d errors in %s seconds", len(error_d["errors"]), lasted )
     if len( error_d["errors"] ) > 0:
         json.dump( error_d, open( settings["file_error_json"], 'w+' ), indent=4 )
     else:
@@ -526,6 +526,7 @@ def test_default(error_d):
         for err in [x for x in ret if x is not None]:
             eid = err[1:err.find( "]" )]
             error_d["errors"].append( (eid, err) )
+        _logger.info( "Processed %d idps", len(ret) )
     return json_obj
 
 
@@ -551,6 +552,7 @@ def test_idps():
     logging.basicConfig(
         level=logging.DEBUG, format='%(asctime)-15s %(message)s')
     _logger = logging.getLogger()
+    s = time.time()
     socket.setdefaulttimeout( settings["timeout"] )
     # so we perform specific tests?
     test_name, test_param = handle_external_test()
@@ -575,4 +577,5 @@ def test_idps():
     else:
         test_fnc(error_d)
 
-    save_errors(error_d)
+    e = time.time() - s
+    save_errors(error_d, e)
