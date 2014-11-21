@@ -1147,14 +1147,24 @@ class AbstractHTTPHandler(BaseHandler):
         # default open hangs in specific python versions
         try:
             r = self.do_open_tlsv1( req, h, headers )
-        except:
+        except Exception, e:
             pass
+
+        # now this is tricky - http://stackoverflow.com/questions/1925639/httplib-cannotsendrequest-error-in-wsgi
+        # ssl in older python's deps? is quite broken
+        if r is None:
+            try:
+                h.close()
+            except:
+                pass
 
         if r is None:
             try:
                 r = self.do_open_default(req, h, headers)
             except socket.error, err: # XXX what error?
                 err = URLError(err)
+            except Exception, e:
+                raise
 
         # raise on error
         if r is None:
